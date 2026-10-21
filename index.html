@@ -1,0 +1,698 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HTSPCB - Indice Prezzi Dinamico</title>
+    <!-- PDF.js per lettura specifiche -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <!-- Supabase JS Client -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <style>
+        :root {
+            --bg: #f4f6f9;
+            --card: #ffffff;
+            --primary: #0066cc;
+            --accent: #00b894;
+            --border: #dcdfe6;
+            --danger: #e74c3c;
+            --scuro: #2c3e50;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg);
+            color: #2c3e50;
+            margin: 0;
+            padding: 25px;
+        }
+
+        .header { display: flex; justify-content: space-between; align-items: center; background: white; padding: 15px 30px; border-radius: 10px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); margin-bottom: 25px; }
+        .header h1 { margin: 0; color: var(--scuro); font-size: 22px; }
+        
+        .container { max-width: 1100px; margin: 0 auto; }
+        p.sub { text-align: center; color: #666; margin-bottom: 25px; }
+
+        .status-bar {
+            text-align: center;
+            font-size: 0.82rem;
+            color: #888;
+            margin-bottom: 18px;
+        }
+        .status-bar .ok { color: #27ae60; }
+        .status-bar .err { color: var(--danger); }
+
+        .drop-zone {
+            background: var(--card);
+            border: 2px dashed var(--primary);
+            border-radius: 12px;
+            padding: 35px 20px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            margin-bottom: 25px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.03);
+        }
+        .drop-zone:hover, .drop-zone.dragover {
+            background: #eef6ff;
+            border-color: #004499;
+        }
+        .drop-zone i { font-size: 35px; color: var(--primary); display: block; margin-bottom: 10px; }
+
+        .parsed-card {
+            background: #e3f2fd;
+            border-left: 5px solid var(--primary);
+            padding: 18px 22px;
+            border-radius: 8px;
+            margin-bottom: 25px;
+            display: none;
+        }
+        .parsed-card h3 { margin: 0 0 12px 0; font-size: 1.15rem; color: var(--primary); }
+        .spec-tags { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 18px; }
+        .tag {
+            background: #fff;
+            padding: 7px 14px;
+            border-radius: 20px;
+            font-weight: 600;
+            font-size: 0.88rem;
+            border: 1px solid var(--border);
+        }
+
+        .price-input-group {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        .price-input-group label { font-weight: 600; }
+        .price-input-group input {
+            padding: 10px 14px;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            font-size: 1rem;
+            width: 180px;
+        }
+        .price-input-group button {
+            padding: 10px 22px;
+            background: var(--accent);
+            color: white;
+            border: none;
+            border-radius: 6px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+        .price-input-group button:hover { background: #00a07a; }
+        .price-input-group button:disabled { background: #95a5a6; cursor: wait; }
+
+        .table-card {
+            background: var(--card);
+            padding: 22px;
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+        }
+        .table-card h2 { margin-top: 0; font-size: 1.25rem; }
+        .empty-state {
+            text-align: center;
+            color: #888;
+            padding: 30px 10px;
+            font-size: 0.95rem;
+        }
+
+        table { width: 100%; border-collapse: collapse; }
+        th, td { padding: 11px 12px; text-align: left; border-bottom: 1px solid var(--border); }
+        th { background: #f8f9fa; font-size: 0.9rem; white-space: nowrap; }
+        td { font-size: 0.92rem; }
+        .price-val { font-weight: bold; color: var(--accent); font-size: 1.05rem; }
+        .count-badge {
+            background: #eef2f7;
+            color: #555;
+            font-size: 0.78rem;
+            padding: 2px 8px;
+            border-radius: 10px;
+        }
+        .reliability {
+            display: block;
+            font-size: 0.72rem;
+            font-weight: 500;
+            margin-top: 3px;
+            line-height: 1.2;
+        }
+        .rel-low  { color: #c0392b; }
+        .rel-mid  { color: #d68910; }
+        .rel-good { color: #1a7a4c; }
+        .rel-full { color: #0066cc; }
+
+        .history-row td {
+            background: #f8fafc;
+            padding: 8px 12px 12px 12px;
+            border-bottom: 1px solid var(--border);
+        }
+        .month-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.85rem;
+            margin-top: 4px;
+        }
+        .month-table th {
+            background: #eef2f7;
+            padding: 5px 10px;
+            text-align: left;
+            font-weight: 600;
+            color: #555;
+        }
+        .month-table td {
+            padding: 5px 10px;
+            border-bottom: 1px solid #eee;
+        }
+        .month-table tr:last-child td { border-bottom: none; }
+        .toggle-hist {
+            background: none;
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            padding: 2px 8px;
+            font-size: 0.75rem;
+            cursor: pointer;
+            color: #555;
+            margin-left: 8px;
+        }
+        .toggle-hist:hover { background: #eef2f7; }
+
+        .toolbar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+        .btn { padding: 8px 14px; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; color: white; transition: 0.2s; font-size: 0.85rem; }
+        .btn-danger-custom { background: var(--danger); }
+        .btn-secondary {
+            padding: 7px 14px;
+            background: #fff;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.85rem;
+            color: #555;
+        }
+        .btn-secondary:hover { background: #f5f5f5; }
+        .btn-danger-outline {
+            padding: 7px 14px;
+            background: #fff;
+            border: 1px solid #f5c6cb;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.85rem;
+            color: var(--danger);
+        }
+        .btn-danger-outline:hover { background: #fdf2f2; }
+    </style>
+</head>
+<body>
+
+<!-- Schermata di Login con Mascotte Ino Wallstreet -->
+<div id="loginOverlay" style="display: flex; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #2c3e50; justify-content: center; align-items: center; z-index: 1000;">
+    <div style="background: white; padding: 30px; border-radius: 12px; width: 380px; text-align: center; box-shadow: 0 4px 15px rgba(0,0,0,0.3);">
+        <h2 style="margin: 0 0 5px 0; color: #2c3e50;">HTSPCB</h2>
+        <p style="font-size: 13px; color: #666; margin-bottom: 20px;"></p>
+        
+        <input type="email" id="loginEmail" placeholder="Username" style="width: 100%; padding: 10px; margin: 8px 0; border: 1px solid #ccc; border-radius: 5px; box-sizing: border-box;">
+        <input type="password" id="loginPassword" placeholder="Password" style="width: 100%; padding: 10px; margin: 8px 0; border: 1px solid #ccc; border-radius: 5px; box-sizing: border-box;">
+        
+        <button class="btn" style="width: 100%; margin-top: 15px; padding: 12px; background: #0066cc;" onclick="eseguiLogin()">Accedi al Portale</button>
+        <p id="erroreLogin" style="color: #e74c3c; font-size: 12px; margin-top: 10px; font-weight: bold;"></p>
+    </div>
+</div>
+
+<div class="container">
+    <div class="header">
+        <h1>HTSPCB - Indice Prezzi Dinamico</h1>
+        <div>
+            <button class="btn btn-danger-custom" style="padding: 6px 14px; font-size: 12px;" onclick="eseguiLogout()">Esci</button>
+        </div>
+    </div>
+
+    <p class="sub">
+      Trascina una specifica PDF → il sistema legge strati, spessore, rame e finitura, poi chiede il prezzo al m² e aggiorna la media per quella tipologia esatta.<br>
+      Per la media vengono considerati solo gli ultimi 20 preventivi per tipologia. Lo storico indica la media del mese precedente.
+    </p>
+
+    <div class="status-bar" id="statusBar">Connessione a Supabase…</div>
+
+    <div class="drop-zone" id="dropZone">
+        <i>📄</i>
+        <b>Trascina qui la specifica tecnica PDF</b>
+        <p style="margin:5px 0 0 0; font-size:0.85rem; color:#888;">oppure clicca per selezionare il file dal computer</p>
+        <input type="file" id="fileInput" accept=".pdf" style="display:none;">
+    </div>
+
+    <div class="parsed-card" id="parsedCard">
+        <h3>Parametri rilevati dal PDF</h3>
+        <div class="spec-tags">
+            <span class="tag" id="tagLayers">Strati: —</span>
+            <span class="tag" id="tagThickness">Spessore: —</span>
+            <span class="tag" id="tagCopper">Rame: —</span>
+            <span class="tag" id="tagFinish">Finitura: —</span>
+        </div>
+        <div class="price-input-group">
+            <label for="quotedPrice">Prezzo preventivato ($/m²):</label>
+            <input type="number" id="quotedPrice" placeholder="Es. 450" step="0.1" min="0">
+            <button id="btnApply" onclick="applyQuotation()">Aggiorna media tipologia</button>
+        </div>
+    </div>
+
+    <div class="table-card">
+        <div class="toolbar">
+            <h2 style="margin:0;">Matrice prezzi medi di riferimento ($/m²)</h2>
+            <div>
+                <button class="btn-secondary" onclick="loadFromSupabase()">Aggiorna da cloud</button>
+                <button class="btn-secondary" onclick="exportCSV()">Esporta CSV</button>
+                <button class="btn-danger-outline" onclick="resetAll()">Azzera tutto</button>
+            </div>
+        </div>
+        <table>
+            <thead>
+                <tr>
+                    <th>Strati</th>
+                    <th>Spessore</th>
+                    <th>Rame</th>
+                    <th>Finitura</th>
+                    <th>Prezzo medio ($/m²)</th>
+                    <th>Ultimo caricamento</th>
+                    <th>Preventivi considerati (max 20)</th>
+                </tr>
+            </thead>
+            <tbody id="priceTable"></tbody>
+        </table>
+        <div class="empty-state" id="emptyState">Nessuna tipologia ancora registrata. Carica un PDF per iniziare.</div>
+    </div>
+</div>
+
+<script>
+    // ========== SUPABASE ==========
+    const SUPABASE_URL = 'https://yyjgfmvzkwejayvufczy.supabase.co';
+    const SUPABASE_KEY = 'sb_publishable_DiRO02MvrAvfyVk5c1jP6g_Oe0diYv_';
+    const _supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+    const MAX_WINDOW = 20;
+    const RESET_PASSWORD = 'Rb1746be!Hts';
+
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+    let marketPrices = {};
+    let detectedData = null;
+    let allQuotes = [];
+
+    const dropZone = document.getElementById('dropZone');
+    const fileInput = document.getElementById('fileInput');
+    const statusBar = document.getElementById('statusBar');
+
+    // --- Controllo Sessione e Login ---
+    async function verificaSessione() {
+        const { data: { session } } = await _supabase.auth.getSession();
+        if (session) {
+            document.getElementById('loginOverlay').style.display = 'none';
+            loadFromSupabase();
+        } else {
+            document.getElementById('loginOverlay').style.display = 'flex';
+        }
+    }
+
+    async function eseguiLogin() {
+        const email = document.getElementById('loginEmail').value;
+        const password = document.getElementById('loginPassword').value;
+        const errDiv = document.getElementById('erroreLogin');
+
+        const { data, error } = await _supabase.auth.signInWithPassword({
+            email: email,
+            password: password
+        });
+
+        if (error) {
+            errDiv.innerText = "Credenziali non valide o errore di accesso.";
+        } else {
+            errDiv.innerText = "";
+            document.getElementById('loginOverlay').style.display = 'none';
+            loadFromSupabase();
+        }
+    }
+
+    async function eseguiLogout() {
+        await _supabase.auth.signOut();
+        location.reload();
+    }
+
+    dropZone.addEventListener('click', () => fileInput.click());
+    dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.classList.add('dragover'); });
+    dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+    dropZone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        dropZone.classList.remove('dragover');
+        if (e.dataTransfer.files.length) parsePDF(e.dataTransfer.files[0]);
+    });
+    fileInput.addEventListener('change', (e) => {
+        if (e.target.files.length) parsePDF(e.target.files[0]);
+        fileInput.value = '';
+    });
+
+    function setStatus(msg, ok) {
+        statusBar.innerHTML = ok === true
+            ? `<span class="ok">${msg}</span>`
+            : ok === false
+            ? `<span class="err">${msg}</span>`
+            : msg;
+    }
+
+    async function loadFromSupabase() {
+        setStatus('Caricamento dati da cloud…');
+        const { data, error } = await _supabase
+            .from('pcb_price_quotes')
+            .select('*')
+            .order('quote_date', { ascending: true });
+
+        if (error) {
+            console.error(error);
+            setStatus('Errore caricamento: ' + error.message, false);
+            return;
+        }
+
+        allQuotes = data || [];
+        marketPrices = aggregateQuotes(allQuotes);
+        renderTable();
+        setStatus(`Connesso · ${allQuotes.length} preventivi in cloud · aggiornato ${new Date().toLocaleTimeString('it-IT')}`, true);
+    }
+
+    function formatDate(dateStr) {
+        if (!dateStr) return '—';
+        const parts = dateStr.slice(0, 10).split('-');
+        if (parts.length === 3) {
+            return `${parts[2]}/${parts[1]}/${parts[0]}`;
+        }
+        return dateStr;
+    }
+
+    function aggregateQuotes(rows) {
+        const map = {};
+        rows.forEach(r => {
+            const key = `${r.layers}|${r.thickness}|${r.copper}|${r.finish}`;
+            if (!map[key]) {
+                map[key] = {
+                    layers: r.layers,
+                    thickness: r.thickness,
+                    copper: r.copper,
+                    finish: r.finish,
+                    entries: []
+                };
+            }
+            map[key].entries.push({
+                price: parseFloat(r.price),
+                date: r.quote_date
+            });
+        });
+
+        Object.keys(map).forEach(key => {
+            const item = map[key];
+            item.entries.sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+            const window = item.entries.slice(-MAX_WINDOW);
+            item.price = window.reduce((s, e) => s + e.price, 0) / window.length;
+            item.count = window.length;
+            item.lastDate = item.entries.length > 0 ? item.entries[item.entries.length - 1].date : null;
+            item.monthly = buildMonthly(item.entries);
+        });
+        return map;
+    }
+
+    function buildMonthly(entries) {
+        const map = {};
+        entries.forEach(e => {
+            const month = (e.date || '').slice(0, 7);
+            if (!month) return;
+            if (!map[month]) map[month] = { sum: 0, count: 0 };
+            map[month].sum += e.price;
+            map[month].count += 1;
+        });
+        const result = {};
+        Object.keys(map).sort().forEach(m => {
+            result[m] = { avg: map[m].sum / map[m].count, count: map[m].count };
+        });
+        return result;
+    }
+
+    async function parsePDF(file) {
+        try {
+            const arrayBuffer = await file.arrayBuffer();
+            const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+            let fullText = '';
+            for (let i = 1; i <= pdf.numPages; i++) {
+                const page = await pdf.getPage(i);
+                const content = await page.getTextContent();
+                fullText += content.items.map(item => item.str).join(' ') + ' ';
+            }
+            extractSpecs(fullText);
+        } catch (err) {
+            alert('Errore durante la lettura del PDF: ' + err.message);
+            console.error(err);
+        }
+    }
+
+    function normalizeNumber(str) {
+        if (!str) return null;
+        return parseFloat(String(str).replace(',', '.').replace(/\s/g, ''));
+    }
+
+    function extractSpecs(text) {
+        const t = text.replace(/\s+/g, ' ').trim();
+
+        let finish = 'Standard';
+        const finKnown = t.match(/Finishing:\s*(CHEM\s*GOLD|HAL\s*LF|HASL\s*LF|HAL\s*LEAD[\s\-]*FREE|HASL\s*LEAD[\s\-]*FREE|HAL|HASL|OSP|ENIG|TIN|STAGNO|IMMERSION\s*GOLD|IMMERSION\s*TIN)/i);
+        if (finKnown) {
+            const raw = finKnown[1].trim().toUpperCase();
+            if (/CHEM\s*GOLD|ENIG|IMMERSION\s*GOLD/.test(raw)) finish = 'Oro (CHEM GOLD / ENIG)';
+            else if (/HAL\s*LF|HASL\s*LF|HAL\s*LEAD|HASL\s*LEAD/.test(raw)) finish = 'HAL Lead-Free';
+            else if (/HAL|HASL/.test(raw)) finish = 'HAL / HASL';
+            else if (/OSP/.test(raw)) finish = 'OSP';
+            else if (/TIN|STAGNO|IMMERSION\s*TIN/.test(raw)) finish = 'Stagno chimico';
+            else finish = finKnown[1].trim();
+        } else if (/CHEM\s*GOLD|ENIG/i.test(t)) {
+            finish = 'Oro (CHEM GOLD / ENIG)';
+        } else if (/HAL\s*LF|HASL\s*LF/i.test(t)) {
+            finish = 'HAL Lead-Free';
+        } else if (/HAL|HASL/i.test(t)) {
+            finish = 'HAL / HASL';
+        } else if (/OSP/i.test(t)) {
+            finish = 'OSP';
+        } else if (/TIN|STAGNO/i.test(t)) {
+            finish = 'Stagno chimico';
+        }
+
+        let layers = null;
+        let thicknessVal = null;
+        const afterFinish = t.match(/Finishing:\s*[A-Z0-9\s\/\-]+?\s+([\d,\.\s]+)/i);
+        if (afterFinish) {
+            const nums = afterFinish[1].match(/[\d,\.]+/g) || [];
+            if (nums.length >= 2) layers = parseInt(nums[1].replace(',', ''), 10);
+            if (nums.length >= 3) thicknessVal = normalizeNumber(nums[2]);
+        }
+        if (!layers || isNaN(layers) || layers < 1 || layers > 40) {
+            const lm = t.match(/Layers:\s*(\d+)/i);
+            if (lm) layers = parseInt(lm[1], 10);
+        }
+        if (!layers || isNaN(layers)) layers = 2;
+
+        let thickness = '1.6 mm';
+        if (thicknessVal != null && !isNaN(thicknessVal)) {
+            const mm = thicknessVal > 20 ? thicknessVal / 1000 : thicknessVal;
+            thickness = mm.toFixed(1) + ' mm';
+        }
+
+        let copper = '35 µm';
+        if (/Cu\s*External/i.test(t)) {
+            const afterCu = t.split(/Cu\s*External\s*Thickness:/i)[1] || '';
+            const candidates = (afterCu.match(/[\d,\.]+/g) || [])
+                .map(normalizeNumber)
+                .filter(n => n != null && n >= 12 && n <= 400);
+            if (candidates.length) copper = Math.round(candidates[0]) + ' µm';
+        }
+
+        detectedData = { layers, thickness, copper, finish };
+
+        document.getElementById('tagLayers').innerText = `Strati: ${layers}`;
+        document.getElementById('tagThickness').innerText = `Spessore: ${thickness}`;
+        document.getElementById('tagCopper').innerText = `Rame: ${copper}`;
+        document.getElementById('tagFinish').innerText = `Finitura: ${finish}`;
+        document.getElementById('parsedCard').style.display = 'block';
+        document.getElementById('quotedPrice').focus();
+    }
+
+    async function applyQuotation() {
+        const price = parseFloat(document.getElementById('quotedPrice').value);
+        if (!price || price <= 0) {
+            alert('Inserisci un prezzo al m² valido!');
+            return;
+        }
+        if (!detectedData) {
+            alert('Nessuna specifica rilevata. Carica prima un PDF.');
+            return;
+        }
+
+        const btn = document.getElementById('btnApply');
+        btn.disabled = true;
+        btn.textContent = 'Salvataggio…';
+
+        const today = new Date().toISOString().slice(0, 10);
+        const row = {
+            layers: detectedData.layers,
+            thickness: detectedData.thickness,
+            copper: detectedData.copper,
+            finish: detectedData.finish,
+            price: price,
+            quote_date: today
+        };
+
+        const { error } = await _supabase.from('pcb_price_quotes').insert([row]);
+
+        btn.disabled = false;
+        btn.textContent = 'Aggiorna media tipologia';
+
+        if (error) {
+            alert('Errore salvataggio su cloud: ' + error.message);
+            console.error(error);
+            return;
+        }
+
+        await loadFromSupabase();
+
+        alert(`Preventivo salvato su cloud:\n${detectedData.layers} strati · ${detectedData.thickness} · ${detectedData.copper} · ${detectedData.finish}\n$ ${price.toFixed(2)} / m²`);
+        document.getElementById('parsedCard').style.display = 'none';
+        document.getElementById('quotedPrice').value = '';
+        detectedData = null;
+    }
+
+    function renderTable() {
+        const tbody = document.getElementById('priceTable');
+        const empty = document.getElementById('emptyState');
+        tbody.innerHTML = '';
+
+        const keys = Object.keys(marketPrices);
+        if (keys.length === 0) {
+            empty.style.display = 'block';
+            return;
+        }
+        empty.style.display = 'none';
+
+        keys.sort((a, b) => {
+            const A = marketPrices[a], B = marketPrices[b];
+            if (A.layers !== B.layers) return A.layers - B.layers;
+            if (A.thickness !== B.thickness) return A.thickness.localeCompare(B.thickness);
+            if (A.copper !== B.copper) return A.copper.localeCompare(B.copper);
+            return A.finish.localeCompare(B.finish);
+        });
+
+        keys.forEach(key => {
+            const item = marketPrices[key];
+            const n = item.count || 1;
+            let relClass, relText;
+            if (n >= 20)      { relClass = 'rel-full'; relText = 'Finestra completa'; }
+            else if (n >= 10) { relClass = 'rel-good'; relText = 'Riferimento abbastanza consolidato'; }
+            else if (n >= 5)  { relClass = 'rel-mid';  relText = 'Riferimento in costruzione'; }
+            else              { relClass = 'rel-low';  relText = 'Storico limitato'; }
+
+            const months = Object.keys(item.monthly || {}).sort().reverse();
+            const hasHistory = months.length > 0;
+            const safeId = key.replace(/[^a-zA-Z0-9]/g, '_');
+
+            const row = document.createElement('tr');
+            row.innerHTML = `
+                <td><b>${item.layers} strati</b></td>
+                <td>${item.thickness}</td>
+                <td>${item.copper}</td>
+                <td>${item.finish}</td>
+                <td class="price-val">
+                    $ ${item.price.toFixed(2)}
+                    <span class="reliability ${relClass}">${relText}</span>
+                </td>
+                <td>${formatDate(item.lastDate)}</td>
+                <td>
+                    <span class="count-badge">${item.count || 1}</span>
+                    ${hasHistory ? `<button class="toggle-hist" onclick="toggleHistory('${safeId}', this)">Storico ▾</button>` : ''}
+                </td>
+            `;
+            tbody.appendChild(row);
+
+            if (hasHistory) {
+                const histRow = document.createElement('tr');
+                histRow.className = 'history-row';
+                histRow.id = 'hist-' + safeId;
+                histRow.style.display = 'none';
+                const monthRows = months.map(m => {
+                    const d = item.monthly[m];
+                    return `<tr><td>${m}</td><td>$ ${d.avg.toFixed(2)}</td><td>${d.count}</td></tr>`;
+                }).join('');
+                histRow.innerHTML = `
+                    <td colspan="7">
+                        <table class="month-table">
+                            <thead><tr><th>Mese</th><th>Media ($/m²)</th><th>Preventivi</th></tr></thead>
+                            <tbody>${monthRows}</tbody>
+                        </table>
+                    </td>
+                `;
+                tbody.appendChild(histRow);
+            }
+        });
+    }
+
+    function toggleHistory(safeId, btn) {
+        const row = document.getElementById('hist-' + safeId);
+        if (!row) return;
+        const open = row.style.display !== 'none';
+        row.style.display = open ? 'none' : 'table-row';
+        btn.textContent = open ? 'Storico ▾' : 'Storico ▴';
+    }
+
+    async function resetAll() {
+        const pwd = prompt('Inserisci la password per azzerare tutti i dati:');
+        if (pwd !== RESET_PASSWORD) {
+            if (pwd !== null) alert('Password non corretta.');
+            return;
+        }
+        if (!confirm('Sei sicuro di voler cancellare TUTTI i preventivi sul cloud? Operazione non reversibile.')) return;
+
+        const { error } = await _supabase
+            .from('pcb_price_quotes')
+            .delete()
+            .neq('id', '00000000-0000-0000-0000-000000000000');
+
+        if (error) {
+            alert('Cancellazione non riuscita:\n' + error.message);
+            return;
+        }
+        await loadFromSupabase();
+        alert('Tutti i dati sono stati cancellati.');
+    }
+
+    function exportCSV() {
+        const keys = Object.keys(marketPrices);
+        if (keys.length === 0) {
+            alert('Nessun dato da esportare.');
+            return;
+        }
+        let csv = 'Strati;Spessore;Rame;Finitura;Prezzo medio ($/m²);Ultimo caricamento;Preventivi considerati (max 20)\n';
+        keys.forEach(key => {
+            const i = marketPrices[key];
+            csv += `${i.layers};${i.thickness};${i.copper};${i.finish};${i.price.toFixed(2)};${formatDate(i.lastDate)};${i.count || 1}\n`;
+        });
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'pcb_market_index.csv';
+        a.click();
+        URL.revokeObjectURL(url);
+    }
+
+    // Avvio verifica sessione all'apertura della pagina
+    verificaSessione();
+</script>
+</body>
+</html>
